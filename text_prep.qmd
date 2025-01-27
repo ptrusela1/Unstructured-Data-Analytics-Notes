@@ -144,7 +144,7 @@ import pyarrow
 
 # You will only need to do this once:
 
-# nltk.download('wordnet')
+nltk.download('wordnet')
 # nltk.download('omw-1.4')
 
 # Obs -- you'll need to import nltk.
