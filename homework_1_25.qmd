@@ -54,7 +54,85 @@ print(calls_df.head())
 Use the AlphaVantage api to get daily stock prices for WWE and related tickers for the last 5 years -- pay attention to your data. You cannot use any AlphaVantage packages (i.e., you can only use requests to grab the data). Tell me about the general trend that you are seeing. I don't care which viz package you use, but plotly is solid and plotnine is good for ggplot2 users.
 
 ```{python}
-import requests 
+import requests
+import pandas as pd
+import plotly.express as px
+
+def fetch_stock_data(api_key, ticker):
+    """
+    Fetch daily stock prices for a given ticker from AlphaVantage.
+    
+    Parameters:
+        api_key (str): Your AlphaVantage API key.
+        ticker (str): Stock ticker symbol.
+    
+    Returns:
+        pd.DataFrame: A DataFrame containing the stock's daily price data.
+    """
+    url = "https://www.alphavantage.co/query"
+    params = {
+        "function": "TIME_SERIES_DAILY",
+        "symbol": ticker,
+        "apikey": api_key,
+        "outputsize": "full"  # Fetch full historical data
+    }
+    response = requests.get(url, params=params)
+    data = response.json()
+    
+    if "Time Series (Daily)" in data:
+        time_series = data["Time Series (Daily)"]
+        # Convert the time series data into a DataFrame
+        df = pd.DataFrame.from_dict(time_series, orient="index", dtype=float)
+        df.rename(columns={
+            "1. open": "open",
+            "2. high": "high",
+            "3. low": "low",
+            "4. close": "close",
+            "5. volume": "volume"
+        }, inplace=True)
+        df.index = pd.to_datetime(df.index)  # Convert index to datetime
+        df.sort_index(inplace=True)  # Sort by date
+        return df
+    else:
+        print(f"Failed to fetch data for {ticker}. Response: {data}")
+        return None
+
+def plot_with_plotly(data_frames, tickers):
+    """
+    Plot stock prices for the given tickers using Plotly.
+    
+    Parameters:
+        data_frames (dict): Dictionary of DataFrames with ticker as keys.
+        tickers (list): List of tickers to plot.
+    """
+    for ticker in tickers:
+        if ticker in data_frames:
+            df = data_frames[ticker]
+            fig = px.line(
+                df,
+                x=df.index,
+                y="close",
+                title=f"{ticker} Stock Prices Over Time",
+                labels={"x": "Date", "y": "Close Price (USD)"}
+            )
+            fig.show()
+
+# Your AlphaVantage API key
+api_key = "YA9LEXMLC8NH72G1"
+
+# Tickers to fetch
+tickers = ["TKO", "EDR"]
+
+# Fetch data for each ticker
+data_frames = {}
+for ticker in tickers:
+    print(f"Fetching data for {ticker}...")
+    df = fetch_stock_data(api_key, ticker)
+    if df is not None:
+        data_frames[ticker] = df
+
+# Plot the historical stock prices using Plotly
+plot_with_plotly(data_frames, tickers)
 
 ```
 
@@ -73,8 +151,184 @@ Just like every other nerdy hobby, professional wrestling draws dedicated fans. 
 ***** Select any single match and get the comments and ratings for that match into a data frame.
 
 ```{python}
+import requests
 from bs4 import BeautifulSoup
+import pandas as pd
 
+# URL of the page containing the table
+url = "https://www.cagematch.net/?id=111&view=statistics"
+
+# Send a GET request to the webpage
+response = requests.get(url)
+
+# Check if the request was successful
+if response.status_code == 200:
+    # Parse the HTML content
+    soup = BeautifulSoup(response.content, 'html.parser')
+    
+    # Locate the div with class "Table"
+    table_div = soup.find("div", {"class": "Table"})
+    
+    if table_div:
+        # Locate all rows within the table
+        rows = table_div.find_all("tr")[1:]  # Skip the header row
+        
+        # Extract data from each row
+        data = []
+        for row in rows:
+            columns = row.find_all("td")
+            data.append({
+                "Rank": columns[0].text.strip(),
+                "Date": columns[1].text.strip(),
+                "Promotion": columns[2].img["alt"].strip() if columns[2].img else None,
+                "Match": columns[3].text.strip(),
+                "WON Rating": columns[4].text.strip(),
+                "Match Type": columns[5].text.strip(),
+                "Rating": columns[6].text.strip(),
+                "Votes": columns[7].text.strip()
+            })
+        
+        # Convert to a DataFrame
+        df = pd.DataFrame(data)
+        
+        # Display or save the DataFrame
+        print(df)
+
+```
+
+## Question 1
+```{python}
+#* What is the correlation between WON ratings and cagematch ratings?
+import re
+
+def convert_won_rating(rating):
+    if not isinstance(rating, str):  
+        return None
+    match = re.match(r"\*{1,5}(?:\*\/\d|\*\d\/\d)?", rating)  
+    if match:
+        base = rating.count("*")  
+        fraction = 0.25 if "1/4" in rating else 0.5 if "1/2" in rating else 0.75 if "3/4" in rating else 0
+        return base + fraction
+    return None  
+
+df["WON Rating Numeric"] = df["WON Rating"].apply(convert_won_rating)
+
+df_cleaned = df.dropna(subset=["WON Rating Numeric", "Rating"])
+
+correlation = df_cleaned["WON Rating Numeric"].corr(df_cleaned["Rating"])
+print(f"Correlation between WON Ratings and Cagematch Ratings: {correlation}")
+```
+
+## Question 2
+```{python}
+#** Which wrestler has the most matches in the top 100?
+from collections import Counter
+
+all_wrestlers = []
+
+# Process each match in the dataset
+for match in df["Match"]:
+    # Split the match into sides using " vs. "
+    sides = match.split(" vs. ") if " vs. " in match else [match]
+    
+    # For each side, split further by " & " to account for tag teams
+    for side in sides:
+        wrestlers = side.split(" & ")
+        all_wrestlers.extend(wrestlers)
+
+# Count the occurrences of each wrestler
+wrestler_counts = Counter(all_wrestlers)
+
+# Find the wrestler with the most matches
+most_common_wrestler = wrestler_counts.most_common(1)[0]
+print(f"Wrestler with the most matches: {most_common_wrestler[0]} ({most_common_wrestler[1]} matches)")
+
+```
+
+## Question 3
+```{python}
+# Count occurrences of each promotion
+promotion_counts = df["Promotion"].value_counts()
+
+# Top promotion
+top_promotion = promotion_counts.idxmax()
+top_promotion_count = promotion_counts.max()
+
+print(f"Top promotion: {top_promotion} with {top_promotion_count} matches")
+```
+
+## Question 4
+```{python}
+#**** What is each promotion's average WON rating?
+import re
+
+def convert_won_rating(rating):
+    if not isinstance(rating, str):  
+        return None
+    match = re.match(r"\*{1,5}(?:\*\/\d|\*\d\/\d)?", rating)  
+    if match:
+        base = rating.count("*")  
+        fraction = 0.25 if "1/4" in rating else 0.5 if "1/2" in rating else 0.75 if "3/4" in rating else 0
+        return base + fraction
+    return None  
+
+df["WON Rating"] = df["WON Rating"].apply(convert_won_rating)
+
+print(df["WON Rating"].isna().sum(), "NaN values remain in WON Rating.")
+
+avg_won_ratings = df.groupby("Promotion")["WON Rating"].mean()
+
+print("Average WON Ratings by Promotion:")
+print(avg_won_ratings)
+```
+
+## Question 5
+```{python}
+##Select any single match and get the comments and ratings for that match into a data frame.
+import requests
+from bs4 import BeautifulSoup
+import pandas as pd
+
+# Step 1: Send a GET request to the webpage
+url = "https://www.cagematch.net/?id=111&nr=8034&page=99"
+response = requests.get(url)
+
+# Step 2: Parse the page with BeautifulSoup
+soup = BeautifulSoup(response.content, "html.parser")
+
+# Step 3: Find the comment and rating section
+comments_section = soup.find_all("div", class_="Comment")
+
+# Step 4: Initialize a list to store comment data
+comments_data = []
+
+# Step 5: Extract the commenter name, comment content, and any rating
+for comment in comments_section:
+    commenter = comment.find("a")  # The name of the commenter is in an <a> tag
+    comment_text = comment.find("div", class_="CommentContents")  # The actual comment
+    if commenter and comment_text:
+        commenter_name = commenter.get_text(strip=True)
+        comment_content = comment_text.get_text(strip=True)
+        
+        # Optional: Check if the comment has a rating number
+        rating = comment.find("span", class_="Rating")  # Adjust this based on page structure
+        if rating:
+            rating_value = rating.get_text(strip=True)
+        else:
+            rating_value = "No rating"
+
+        # Append the data as a dictionary to the list
+        comments_data.append({
+            "Commenter": commenter_name,
+            "Rating": rating_value,
+            "Comment": comment_content
+        })
+
+# Step 6: Convert the list of dictionaries into a pandas DataFrame
+df_comments = pd.DataFrame(comments_data)
+
+# Step 7: Display the DataFrame
+print(df_comments)
 ```
 
 ## Step 4
@@ -86,8 +340,59 @@ You can't have matches without wrestlers. The following link contains the top 10
 ***** Of the top 100, which wrestler has the best win/loss?
 
 ```{python}
+import requests
+from bs4 import BeautifulSoup
+import pandas as pd
+
+def scrape_wrestler_links():
+    """
+    Scrapes the top 100 wrestlers' names and profile links from the main page.
+    
+    Returns:
+        pd.DataFrame: A DataFrame containing wrestler names and profile links.
+    """
+    url = "https://www.cagematch.net/?id=2&view=statistics"
+    headers = {"User-Agent": "Mozilla/5.0"}
+    response = requests.get(url, headers=headers)
+    
+    if response.status_code != 200:
+        print("Failed to fetch the main page.")
+        return pd.DataFrame()
+
+    # Parse the page
+    soup = BeautifulSoup(response.content, "html.parser")
+    table = soup.find("table", class_="TBase TableBorderColor")  # Updated class name
+    if not table:
+        print("Table not found!")
+        return pd.DataFrame()
+
+    rows = table.find_all("tr", class_=["TRow1", "TRow2"])  # Rows with data
+
+    data = []
+    for row in rows:
+        cols = row.find_all("td")
+        if len(cols) > 1:  # Ensure the row contains data
+            name_tag = cols[1].find("a")  # Link to wrestler's profile
+            if name_tag:
+                name = name_tag.text.strip()
+                link = "https://www.cagematch.net/" + name_tag["href"]
+                data.append({"Wrestler": name, "Profile Link": link})
+
+    return pd.DataFrame(data)
+
+# Scrape wrestler links
+wrestler_links_df = scrape_wrestler_links()
+print(wrestler_links_df.head())
+```
+
+```{python}
 
 ```
+
+```{python}
+
+```
+
 
 ## Step 5
 
