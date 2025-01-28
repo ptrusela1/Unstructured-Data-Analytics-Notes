@@ -54,86 +54,88 @@ print(calls_df.head())
 Use the AlphaVantage api to get daily stock prices for WWE and related tickers for the last 5 years -- pay attention to your data. You cannot use any AlphaVantage packages (i.e., you can only use requests to grab the data). Tell me about the general trend that you are seeing. I don't care which viz package you use, but plotly is solid and plotnine is good for ggplot2 users.
 
 ```{python}
+import plotly.io as pio
+pio.renderers.default = "browser"
 import requests
 import pandas as pd
 import plotly.express as px
+from datetime import datetime
 
-def fetch_stock_data(api_key, ticker):
+def fetch_stock_data(symbol, api_key):
     """
-    Fetch daily stock prices for a given ticker from AlphaVantage.
-    
-    Parameters:
-        api_key (str): Your AlphaVantage API key.
-        ticker (str): Stock ticker symbol.
-    
+    Fetch daily stock price data using TIME_SERIES_DAILY (free-tier Alpha Vantage).
+    Args:
+        symbol (str): Stock ticker symbol.
+        api_key (str): AlphaVantage API key.
     Returns:
-        pd.DataFrame: A DataFrame containing the stock's daily price data.
+        pd.DataFrame: DataFrame with daily stock prices.
     """
-    url = "https://www.alphavantage.co/query"
+    url = f"https://www.alphavantage.co/query"
     params = {
-        "function": "TIME_SERIES_DAILY",
-        "symbol": ticker,
+        "function": "TIME_SERIES_DAILY",  
+        "symbol": symbol,
         "apikey": api_key,
-        "outputsize": "full"  # Fetch full historical data
+        "outputsize": "full"  
     }
+    
     response = requests.get(url, params=params)
     data = response.json()
     
-    if "Time Series (Daily)" in data:
-        time_series = data["Time Series (Daily)"]
-        # Convert the time series data into a DataFrame
-        df = pd.DataFrame.from_dict(time_series, orient="index", dtype=float)
-        df.rename(columns={
-            "1. open": "open",
-            "2. high": "high",
-            "3. low": "low",
-            "4. close": "close",
-            "5. volume": "volume"
-        }, inplace=True)
-        df.index = pd.to_datetime(df.index)  # Convert index to datetime
-        df.sort_index(inplace=True)  # Sort by date
-        return df
-    else:
-        print(f"Failed to fetch data for {ticker}. Response: {data}")
+    if "Time Series (Daily)" not in data:
+        print(f"Error fetching data for {symbol}: {data.get('Error Message', 'Unknown error')}")
         return None
-
-def plot_with_plotly(data_frames, tickers):
-    """
-    Plot stock prices for the given tickers using Plotly.
     
-    Parameters:
-        data_frames (dict): Dictionary of DataFrames with ticker as keys.
-        tickers (list): List of tickers to plot.
-    """
-    for ticker in tickers:
-        if ticker in data_frames:
-            df = data_frames[ticker]
-            fig = px.line(
-                df,
-                x=df.index,
-                y="close",
-                title=f"{ticker} Stock Prices Over Time",
-                labels={"x": "Date", "y": "Close Price (USD)"}
-            )
-            fig.show()
+    daily_prices = data["Time Series (Daily)"]
+    df = pd.DataFrame.from_dict(daily_prices, orient="index")
+    df = df.reset_index().rename(columns={"index": "date"})
+    df["date"] = pd.to_datetime(df["date"])
+    df = df.sort_values("date")
+    
+    df = df.rename(columns={
+        "1. open": "open",
+        "2. high": "high",
+        "3. low": "low",
+        "4. close": "close",
+        "5. volume": "volume"
+    })
+    df = df[["date", "close"]]  
+    df["close"] = df["close"].astype(float)
+    
+    return df
 
-# Your AlphaVantage API key
 api_key = "YA9LEXMLC8NH72G1"
+tickers = ["TKO", "EDR"]  
 
-# Tickers to fetch
-tickers = ["TKO", "EDR"]
 
-# Fetch data for each ticker
-data_frames = {}
+stock_data = {}
 for ticker in tickers:
     print(f"Fetching data for {ticker}...")
-    df = fetch_stock_data(api_key, ticker)
+    df = fetch_stock_data(ticker, api_key)
     if df is not None:
-        data_frames[ticker] = df
+        stock_data[ticker] = df.assign(ticker=ticker)
 
-# Plot the historical stock prices using Plotly
-plot_with_plotly(data_frames, tickers)
 
+if stock_data:
+    combined_data = pd.concat(stock_data.values(), ignore_index=True)
+    
+    
+    five_years_ago = datetime.now() - pd.DateOffset(years=5)
+    combined_data = combined_data[combined_data["date"] >= five_years_ago]
+    
+    fig = px.line(
+        combined_data,
+        x="date",
+        y="close",
+        color="ticker",
+        title="5-Year Stock Price Trends",
+        labels={"close": "Closing Price", "date": "Date"},
+    )
+    fig.update_layout(xaxis_title="Date", yaxis_title="Closing Price", legend_title="Ticker")
+    fig.show()
+else:
+    print("No valid data fetched. Please check your API key or tickers.")
+
+#In this plot, we can see that the stock prices for both TKO and EDR have been increasing over the past 5 years, but TKO has taken a significant jump while EDR is barely rising. On the AlphaVantage API website, I was not able to pull any WWE data.
 ```
 
 ## Step 3
@@ -386,11 +388,163 @@ print(wrestler_links_df.head())
 ```
 
 ```{python}
+#*** Of the top 100, who has wrestled the most matches?
+import requests
+from bs4 import BeautifulSoup
+from urllib.parse import urlparse, parse_qs, urlencode
 
+# Base URL for the website
+base_url = "https://www.cagematch.net/"
+
+# URL to scrape the list of wrestlers
+url = "https://www.cagematch.net/?id=2&view=statistics"
+
+# Dictionary to store wrestler names and their total matches
+wrestler_matches = []
+
+# Step 1: Request the page with the list
+response = requests.get(url)
+soup = BeautifulSoup(response.text, 'html.parser')
+
+# Step 2: Extract all wrestler URLs (hrefs) from the 'Gimmick' column
+gimmick_links = soup.find_all('a', href=True)
+wrestler_urls = [base_url + link['href'].replace("&amp;", "&") for link in gimmick_links if 'gimmick=' in link['href']]
+
+# Step 3: For each wrestler URL, modify the URL and scrape the total matches
+for wrestler_url in wrestler_urls:
+    # Parse the URL and remove the gimmick and any other query parameters
+    parsed_url = urlparse(wrestler_url)
+    query_params = parse_qs(parsed_url.query)
+
+    # Remove the gimmick parameter
+    query_params.pop('gimmick', None)
+
+    # Rebuild the URL without the gimmick parameter and append &page=22
+    new_query = urlencode(query_params, doseq=True)
+    wrestler_page_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}?{new_query}&page=22"
+
+    # Send the request to the new page URL
+    wrestler_response = requests.get(wrestler_page_url)
+    wrestler_soup = BeautifulSoup(wrestler_response.text, 'html.parser')
+    
+    # Attempt to find the Total Matches in the div with class 'InformationBoxContents'
+    total_matches_section = wrestler_soup.find('div', class_='InformationBoxContents')
+    
+    if total_matches_section:
+        # Extract the number (strip whitespace and clean it up)
+        total_matches = int(total_matches_section.text.strip().split()[0])  # Convert to integer for sorting
+        wrestler_name = wrestler_url.split('=')[-1]  # Extract wrestler name from the URL (after 'gimmick=')
+        wrestler_matches.append((wrestler_name, total_matches))
+    else:
+        print(f"Wrestler: {wrestler_url} - Total Matches not found")
+
+# Step 4: Sort the wrestlers by total matches in descending order
+sorted_wrestlers = sorted(wrestler_matches, key=lambda x: x[1], reverse=True)
+
+# Step 5: Print the sorted wrestlers
+print("Wrestlers sorted by Total Matches:")
+for wrestler, matches in sorted_wrestlers:
+    print(f"{wrestler}: {matches} matches")
+
+
+### Answer is Ric Flair
 ```
 
 ```{python}
+##***** Of the top 100, which wrestler has the best win/loss?
 
+import requests
+from bs4 import BeautifulSoup
+from urllib.parse import urlparse, parse_qs, urlencode
+
+# Base URL for the website
+base_url = "https://www.cagematch.net/"
+
+# URL to scrape the list of wrestlers
+url = "https://www.cagematch.net/?id=2&view=statistics"
+
+# List to store wrestler names and their win percentage
+wrestler_win_percentages = []
+
+# Step 1: Request the page with the list
+response = requests.get(url)
+soup = BeautifulSoup(response.text, 'html.parser')
+
+# Print the page HTML to check if the structure is correct
+print(soup.prettify())  # Prints the HTML of the page in a readable format
+
+# Step 2: Extract all wrestler URLs (hrefs) from the 'Gimmick' column
+gimmick_links = soup.find_all('a', href=True)
+wrestler_urls = [base_url + link['href'].replace("&amp;", "&") for link in gimmick_links if 'gimmick=' in link['href']]
+
+# Debugging: Print all extracted wrestler URLs to ensure we are collecting them correctly
+print("Wrestler URLs extracted:")
+for url in wrestler_urls:
+    print(url)
+
+# Step 3: For each wrestler URL, modify the URL and scrape the win percentage
+for wrestler_url in wrestler_urls:
+    # Parse the URL and remove the gimmick and any other query parameters
+    parsed_url = urlparse(wrestler_url)
+    query_params = parse_qs(parsed_url.query)
+
+    # Remove the gimmick parameter
+    query_params.pop('gimmick', None)
+
+    # Rebuild the URL without the gimmick parameter and append &page=22
+    new_query = urlencode(query_params, doseq=True)
+    wrestler_page_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}?{new_query}&page=22"
+
+    # Send the request to the new page URL
+    wrestler_response = requests.get(wrestler_page_url)
+    wrestler_soup = BeautifulSoup(wrestler_response.text, 'html.parser')
+
+    # Debugging: Print the wrestler page HTML to see the structure
+    # print(f"HTML for {wrestler_url}:")
+    # print(wrestler_soup.prettify())  # Uncomment this if needed for debugging
+
+    # Attempt to find the win percentage in the div with class 'InformationBoxContents'
+    win_percentage_section = wrestler_soup.find_all('div', class_='InformationBoxContents')
+
+    # Debugging: Print all the found InformationBoxContents divs to see their content
+    # print(f"Found InformationBoxContents divs for {wrestler_url}:")
+    # for section in win_percentage_section:
+    #     print(section.text.strip())
+
+    # Find the div that contains the win percentage (format should be "1195 (49.7%)")
+    for section in win_percentage_section:
+        win_percentage_text = section.text.strip()
+
+        # We are looking for the format that includes the percentage in parentheses
+        if '(' in win_percentage_text and ')' in win_percentage_text:
+            # Extract the percentage inside parentheses (e.g., "49.7%")
+            start = win_percentage_text.find('(') + 1
+            end = win_percentage_text.find(')')
+            win_percentage_str = win_percentage_text[start:end].strip('%')  # Extract percentage without '%'
+
+            # Debugging: Print the extracted win percentage
+            print(f"Extracted win percentage for {wrestler_url}: {win_percentage_str}%")
+
+            try:
+                # Convert the win percentage to float and store it
+                win_percentage = float(win_percentage_str)  # Convert to float
+                wrestler_name = wrestler_url.split('=')[-1]  # Extract wrestler name from the URL
+                wrestler_win_percentages.append((wrestler_name, win_percentage))
+                break  # If we found a valid win percentage, break the loop
+            except ValueError:
+                print(f"Error converting win percentage for {wrestler_url}. Got: {win_percentage_str}")
+        else:
+            print(f"Win percentage format not found in div for wrestler: {wrestler_url}")
+
+# Step 4: Sort the wrestlers by win percentage in descending order
+sorted_wrestlers = sorted(wrestler_win_percentages, key=lambda x: x[1], reverse=True)
+
+# Step 5: Print the sorted wrestlers
+print("Wrestlers sorted by Win Percentage:")
+for wrestler, win_percent in sorted_wrestlers:
+    print(f"{wrestler}: {win_percent}% win rate")
+
+### Answer is Gene Okerlund
 ```
 
 
