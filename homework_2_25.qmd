@@ -1,0 +1,167 @@
+---
+title: "Homework 2"
+author: "Your Name Here"
+format:
+  html:
+    toc: true
+    toc-location: left
+    self-contained: true
+jupyter: python3
+---
+
+## Task 1
+
+We are going to return to the table of the top 100 wrestlers: https://www.cagematch.net/?id=2&view=statistics. Specifically, you are going to get the ratings/comments tables for each wrestler.
+
+```{python}
+import requests
+from bs4 import BeautifulSoup
+from urllib.parse import urlparse, parse_qs, urlencode
+
+
+base_url = "https://www.cagematch.net/"
+
+url = "https://www.cagematch.net/?id=2&view=statistics"
+
+wrestler_rating_comments = []
+
+response = requests.get(url)
+soup = BeautifulSoup(response.text, 'html.parser')
+
+print(soup.prettify())
+
+# Extracting the wrestler links
+gimmick_links = soup.find_all('a', href=True)
+wrestler_urls = [base_url + link['href'].replace("&amp;", "&") for link in gimmick_links if 'gimmick=' in link['href']]
+
+# Debugging: Print all extracted wrestler URLs to ensure we are collecting them correctly
+print("Wrestler URLs extracted:")
+for url in wrestler_urls:
+    print(url)
+
+# Looping through each wrestler's URL
+for wrestler_url in wrestler_urls:
+    parsed_url = urlparse(wrestler_url)
+    query_params = parse_qs(parsed_url.query)
+
+    # Remove the 'gimmick' query parameter
+    query_params.pop('gimmick', None)
+
+    # Construct the new URL with page=99 to get the correct wrestler page
+    new_query = urlencode(query_params, doseq=True)
+    wrestler_page_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}?{new_query}&page=99"
+
+    # Send the request to the wrestler's page
+    wrestler_response = requests.get(wrestler_page_url)
+    wrestler_soup = BeautifulSoup(wrestler_response.text, 'html.parser')
+
+    # Extract rating and comments from the wrestler's page
+    rating_comments_section = wrestler_soup.find_all('div', class_='Comment')
+
+    # Debugging: Print the wrestler's page HTML to inspect the structure (optional)
+    # print(f"HTML for {wrestler_url}:")
+    # print(wrestler_soup.prettify())  # Uncomment this if needed for debugging
+
+    for comment_div in rating_comments_section:
+        # Extracting the comment text
+        comment_text = comment_div.get_text(strip=True)
+
+        # Attempt to extract the rating if it's available within the same div
+        # Assuming the rating is in a specific format (e.g., inside a span with a specific class)
+        rating_span = comment_div.find('span', class_='Rating')  # Modify the class if necessary
+        if rating_span:
+            rating = rating_span.get_text(strip=True)
+        else:
+            rating = 'No rating found'
+
+        # Append the comment and rating to the list
+        wrestler_rating_comments.append({
+            'wrestler_url': wrestler_url,
+            'comment': comment_text,
+            'rating': rating
+        })
+
+# Print out all the extracted ratings and comments
+for entry in wrestler_rating_comments:
+    print(f"Wrestler URL: {entry['wrestler_url']}")
+    print(f"Comment: {entry['comment']}")
+    print(f"Rating: {entry['rating']}")
+    print("-" * 40)
+```
+
+
+## Task 2
+
+Perform any form of sentiment analysis. What is the relationship between a reviewer's sentiment and their rating?
+```{python}
+import nltk
+nltk.download('vader_lexicon')
+```
+
+```{python}
+from textblob import TextBlob
+
+def get_sentiment(text):
+    blob = TextBlob(text)
+    return blob.sentiment.polarity
+
+for entry in wrestler_rating_comments:
+    comment = entry['comment']
+    sentiment = get_sentiment(comment)
+    entry['sentiment'] = sentiment  
+    print(f"Wrestler URL: {entry['wrestler_url']}")
+    print(f"Comment: {comment}")
+    print(f"Rating: {entry['rating']}")
+    print(f"Sentiment: {sentiment}")  
+    print("-" * 40)
+```
+
+```{python}
+import pandas as pd
+
+df = pd.DataFrame(wrestler_rating_comments)
+
+df['numeric_rating'] = pd.to_numeric(df['rating'], errors='coerce')
+
+correlation = df['sentiment'].corr(df['numeric_rating'])
+print("Correlation between sentiment and rating:", correlation)
+```
+
+
+## Task 3
+
+Perform any type of topic modeling on the comments. What are the main topics of the comments? How can you use those topics to understand what people value?
+
+
+It seems that people value German.
+```{python}
+import re
+from sklearn.decomposition import LatentDirichletAllocation
+from sklearn.feature_extraction.text import CountVectorizer
+
+documents = df['comment']  
+
+def preprocess_text(text):
+    
+    text = re.sub(r'\d+', '', text)  
+    text = re.sub(r'[^\w\s]', '', text)  
+    text = text.lower()  
+    return text
+
+documents_clean = documents.apply(preprocess_text)
+
+vectorizer = CountVectorizer(max_df=0.95, min_df=2, stop_words='english')
+dtm = vectorizer.fit_transform(documents_clean)
+
+lda = LatentDirichletAllocation(n_components=5, random_state=0)
+lda.fit(dtm)
+
+def display_topics(model, feature_names, no_top_words):
+    for topic_idx, topic in enumerate(model.components_):
+        print(f"Topic {topic_idx}:")
+        
+        print(" ".join([feature_names[i] for i in topic.argsort()[:-no_top_words - 1:-1]]))
+
+display_topics(lda, vectorizer.get_feature_names_out(), 10)
+
+```
