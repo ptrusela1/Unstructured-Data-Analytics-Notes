@@ -126,42 +126,72 @@ df['numeric_rating'] = pd.to_numeric(df['rating'], errors='coerce')
 correlation = df['sentiment'].corr(df['numeric_rating'])
 print("Correlation between sentiment and rating:", correlation)
 ```
+```{python}
+import pandas as pd
 
-
+# Save DataFrame to CSV
+df.to_csv("df.csv", index=False)
+```
 ## Task 3
 
 Perform any type of topic modeling on the comments. What are the main topics of the comments? How can you use those topics to understand what people value?
 
+```{python}
+import pandas as pd
+from langdetect import detect, DetectorFactory
 
-It seems that people value German.
+DetectorFactory.seed = 0  # Ensures consistent results
+
+# Load the CSV file
+file_path = "G:/My Drive/MSSA60250 Unstructured Seth/unstructured_notes/df.csv"
+df = pd.read_csv(file_path)
+
+# Function to detect language
+def is_german(text):
+    try:
+        return detect(text) == "de"
+    except:
+        return False  # In case of errors
+
+# Apply to all text columns and drop German rows
+df_cleaned = df[~df.astype(str).applymap(is_german).any(axis=1)]
+```
+
 ```{python}
 import re
 from sklearn.decomposition import LatentDirichletAllocation
 from sklearn.feature_extraction.text import CountVectorizer
 
-documents = df['comment']  
+# Sample data
+documents = df_cleaned['comment']  # Assuming df is your DataFrame and 'comment' is the column with text
 
+# Function to preprocess the text by removing numbers
 def preprocess_text(text):
-    
-    text = re.sub(r'\d+', '', text)  
-    text = re.sub(r'[^\w\s]', '', text)  
-    text = text.lower()  
+    # Remove numbers and any unwanted characters (e.g., special characters)
+    text = re.sub(r'\d+', '', text)  # Remove digits
+    text = re.sub(r'[^\w\s]', '', text)  # Remove punctuation
+    text = text.lower()  # Optional: Convert to lowercase
     return text
 
+# Apply preprocessing to the documents
 documents_clean = documents.apply(preprocess_text)
 
+# Vectorize the documents with CountVectorizer (exclude numbers and other unwanted tokens)
 vectorizer = CountVectorizer(max_df=0.95, min_df=2, stop_words='english')
 dtm = vectorizer.fit_transform(documents_clean)
 
+# Fit the LDA model
 lda = LatentDirichletAllocation(n_components=5, random_state=0)
 lda.fit(dtm)
 
+# Function to display topics
 def display_topics(model, feature_names, no_top_words):
     for topic_idx, topic in enumerate(model.components_):
         print(f"Topic {topic_idx}:")
-        
+        # Display the top words for each topic
         print(" ".join([feature_names[i] for i in topic.argsort()[:-no_top_words - 1:-1]]))
 
+# Display the topics
 display_topics(lda, vectorizer.get_feature_names_out(), 10)
 
 ```
