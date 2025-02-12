@@ -195,3 +195,8 @@ def display_topics(model, feature_names, no_top_words):
 display_topics(lda, vectorizer.get_feature_names_out(), 10)
 
 ```
+
+
+Main Topics: Best, Time, Great, Wrestling, Wrester
+
+Fans on the site value greatness in wrestlers, with a focus on who is the "best" over time. They discuss wrestlers' legacies, careers, and compare top talents from different eras, showing a deep appreciation for wrestling's history and the athletes who define it.
