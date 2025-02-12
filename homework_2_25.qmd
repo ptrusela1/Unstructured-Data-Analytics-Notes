@@ -28,16 +28,10 @@ wrestler_rating_comments = []
 response = requests.get(url)
 soup = BeautifulSoup(response.text, 'html.parser')
 
-print(soup.prettify())
-
 # Extracting the wrestler links
 gimmick_links = soup.find_all('a', href=True)
 wrestler_urls = [base_url + link['href'].replace("&amp;", "&") for link in gimmick_links if 'gimmick=' in link['href']]
 
-# Debugging: Print all extracted wrestler URLs to ensure we are collecting them correctly
-print("Wrestler URLs extracted:")
-for url in wrestler_urls:
-    print(url)
 
 # Looping through each wrestler's URL
 for wrestler_url in wrestler_urls:
@@ -80,13 +74,6 @@ for wrestler_url in wrestler_urls:
             'comment': comment_text,
             'rating': rating
         })
-
-# Print out all the extracted ratings and comments
-for entry in wrestler_rating_comments:
-    print(f"Wrestler URL: {entry['wrestler_url']}")
-    print(f"Comment: {entry['comment']}")
-    print(f"Rating: {entry['rating']}")
-    print("-" * 40)
 ```
 
 
@@ -109,11 +96,7 @@ for entry in wrestler_rating_comments:
     comment = entry['comment']
     sentiment = get_sentiment(comment)
     entry['sentiment'] = sentiment  
-    print(f"Wrestler URL: {entry['wrestler_url']}")
-    print(f"Comment: {comment}")
-    print(f"Rating: {entry['rating']}")
-    print(f"Sentiment: {sentiment}")  
-    print("-" * 40)
+
 ```
 
 ```{python}
