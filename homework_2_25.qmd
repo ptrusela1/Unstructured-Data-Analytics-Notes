@@ -1,6 +1,6 @@
 ---
 title: "Homework 2"
-author: "Your Name Here"
+author: "Paul Trusela"
 format:
   html:
     toc: true
